@@ -7,8 +7,9 @@
 
 ;; High-level API
 
-(defprotocol Validator
-  (validate [self v] "Validates a given value (primitive or composed) against this validator"))
+(defmulti validate 
+  "Validates a given value (primitive or composed) against this validator"
+  (fn [v _] (class v)))
 
 (defrecord ValidationFailure [path reason]
   java.lang.Object
@@ -47,93 +48,89 @@ Equivalent to (comp success? validate)"
     ::success
     (fail (str "Expected " expected " but found " actual))))
 
-(extend-protocol Validator
-  ;; primitive validators validate against themselves
-  Number
-  (validate [self v] (equals v self))
+(defmethod validate Number
+  [self v] (equals v self))
 
-  String 
-  (validate [self v] (equals v self))
-  
-  Boolean
-  (validate [self v] (equals v self))
+(defmethod validate String
+  [self v] (equals v self))
 
-  clojure.lang.Keyword
-  (validate [self v] (equals v self))
+(defmethod validate Boolean
+  [self v] (equals v self))
 
-  nil
-  (validate [_ v] 
-    (if (nil? v)
+(defmethod validate clojure.lang.Keyword
+  [self v] (equals v self))
+
+(defmethod validate nil
+  [_ v]
+  (if (nil? v)
       ::success
       (fail (str "Expected nil but found " v))))
 
-  java.util.regex.Pattern
-  (validate [self v] 
-    (if (and (string? v) (re-matches self v))
-      ::success
-      (fail (str "Expected value matching " (pr-str self) " but got " v))))
-  
-  ;; structured validator validate exactly against the structure given as the template
-  ;; with the exception that PersistentHashMap allows missing values if value validator accepts nil
-  clojure.lang.IPersistentMap
-  (validate [self v]
-    (cond
-     (not (map? v)) 
-     (fail (str "Expected map but got " v))
-     
-     (not (subset? (set (keys v)) (set (keys self))))
-     (fail (str "Got unsupported entries "
-                (select-keys v (difference (set (keys v)) (set (keys self))))))
+(defmethod validate java.util.regex.Pattern
+  [self v] 
+  (if (and (string? v) (re-matches self v))
+    ::success
+    (fail (str "Expected value matching " (pr-str self) " but got " v))))
 
-     :else
-     (let [failures (mapcat
-                     (fn [[key validator]]
-                       (let [val (validate validator (get v key))]
-                         (when-not (success? val)
-                           (map #(vector key %) val))))
-                     self)]
-       (if (not (seq failures))
-         ::success
-         (mapcat (fn [[key failure]]
-                   (fail (cons key (:path failure))
-                         (:reason failure)))
-              failures)))))
-  
-  ;; IPersistentVector appears to be lower than IFn on the dispatch order
-  clojure.lang.PersistentVector
-  (validate [self v]
-    (cond
-     (not (vector? v)) 
-     (fail (str "Expected vector but got " v))
+(defmethod validate clojure.lang.IPersistentMap
+  [self v]
+  (cond
+   (not (map? v)) 
+   (fail (str "Expected map but got " v))
+   
+   (not (subset? (set (keys v)) (set (keys self))))
+   (fail (str "Got unsupported entries "
+              (select-keys v (difference (set (keys v)) (set (keys self))))))
 
-     (not= (count self) (count v))
-     (fail (str "Expected vector of length " (count self) " but got " v))
+   :else
+   (let [failures (mapcat
+                   (fn [[key validator]]
+                     (let [val (validate validator (get v key))]
+                       (when-not (success? val)
+                         (map #(vector key %) val))))
+                   self)]
+     (if (not (seq failures))
+       ::success
+       (mapcat (fn [[key failure]]
+                 (fail (cons key (:path failure))
+                       (:reason failure)))
+               failures)))))
 
-     :else 
-     (let [failures (mapcat 
-                     (fn [idx validator actual]
-                       (let [val (validate validator actual)]
-                         (when (failure? val)
-                           (map #(vector idx %) val))))
-                     (range) self v)]
-       (if (seq failures)
-         (mapcat 
-          (fn [[idx failure]]
-            (fail (cons idx (:path failure)) (:reason failure)))
-          failures)
-         ::success))))
+(defmethod validate clojure.lang.IPersistentVector
+  [self v]
+  (cond
+   (not (vector? v)) 
+   (fail (str "Expected vector but got " v))
 
-  ;; everything else are opaque validators defined by an acceptance function
-  clojure.lang.IFn
-  (validate [self v] 
-    (let [res (self v)]
-      (if (instance? Boolean res)
-        (or (and res ::success) (fail (str "Failed to validate " v)))
-        res))))
+   (not= (count self) (count v))
+   (fail (str "Expected vector of length " (count self) " but got " v))
 
+   :else 
+   (let [failures (mapcat 
+                   (fn [idx validator actual]
+                     (let [val (validate validator actual)]
+                       (when (failure? val)
+                         (map #(vector idx %) val))))
+                   (range) self v)]
+     (if (seq failures)
+       (mapcat 
+        (fn [[idx failure]]
+          (fail (cons idx (:path failure)) (:reason failure)))
+        failures)
+       ::success))))
+
+(defmethod validate clojure.lang.IFn
+  [self v] 
+  (let [res (self v)]
+    (if (instance? Boolean res)
+      (or (and res ::success) (fail (str "Failed to validate " v)))
+      res)))
+
+(prefer-method validate clojure.lang.IPersistentVector clojure.lang.IFn)
+(prefer-method validate clojure.lang.IPersistentMap clojure.lang.IFn)
 
 
-;; Validator
+;; Validators
 
 (defn optional 
   "Marks a given validator as optional, i.e. it succeeds for a nil value or a value that validates"
@@ -189,6 +186,25 @@ Equivalent to (comp success? validate)"
       (let [failures (mapcat #(let [val (validate validator %)] (when (failure? val) val)) v)]
         (or (seq failures) ::success))
       (fail "Expected set but got " v))))
+
+(defn map-of
+  "Creates a schema for a map having an arbitrary number of key-value pairs satisfying the schema"
+  [key-schema value-schema]
+  (fn [v]
+    (if (map? v)
+      (let [failures 
+            (mapcat
+             (fn [[key val]]
+               (let [kres (validate key-schema key)
+                     vres (validate value-schema val)]
+                 (cond
+                  (and (success? kres) (success? vres)) nil
+                  (success? kres) (map #(fail (cons key (:path %)) (:reason %)) vres)
+                  (success? vres) kres
+                  :else (concat kres (map #(fail (cons key (:path %)) (:reason %)) vres)))))
+             v)]
+        (or (seq failures) ::success))
+      (fail (str "Expected map but got " v)))))
 
 (defn repeat
   "Creates a schema for a repetition of elements passing the validator. Supports the following options:

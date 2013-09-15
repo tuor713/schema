@@ -151,4 +151,15 @@
   (is (s/failure? (s/validate (s/set-of s/keyword)
                        #{:a :b :c "d"}))))
 
+(deftest test-map-of
+  (is (s/valid? (s/map-of s/keyword s/number)
+                {:a 1 :b 2 :c 3}))
+  (is (not (s/valid? (s/map-of s/keyword s/number)
+                     {"a" 1 :b 2 :c 3})))
+  (is (not (s/valid? (s/map-of s/keyword s/number)
+                     {:a 1 :b 2 :c "string"})))
+  (is (not (s/valid? (s/map-of s/keyword s/number)
+                     [:a 1 :b 2 :c 3])))
+  )
+
 ;; end 
