@@ -1,0 +1,232 @@
+(ns uwh.schema
+  "Schema validator via a templating approach. Mainly dictionaries and vectors are templates for the data structures they are meant to validate. Schemas and schema fragments are normal Clojure data structures and so lend themself to reuse in the normal Clojure fashion."
+  (:refer-clojure :exclude [boolean double int keyword long repeat])
+  (:use [clojure.set :only [difference subset?]]
+        [clojure.string :only [join]]))
+
+
+;; High-level API
+
+(defprotocol Validator
+  (validate [self v] "Validates a given value (primitive or composed) against this validator"))
+
+(defrecord ValidationFailure [path reason]
+  java.lang.Object
+  (toString [_]
+    (str "Failure at '" (join " > " path) "': " reason)))
+
+(defmethod print-method ValidationFailure [o ^java.io.Writer out]
+  (.write out (str "ValidationFailure{" o "}")))
+
+(def success ::success)
+(defn success? 
+  "Checks whether the result of validation indicates success"
+  [v] (= ::success v))
+(defn failure? 
+  "Checks whether the results of validation indicates failure"
+  [v] (not= ::success v))
+
+(defn fail 
+  "Mark validation as failed. Supports to options:
+a) giving just a reason string (assuming an zero-length path to the failing item)
+b) giving a path and a reason string"
+  ([reason] [(ValidationFailure. [] reason)])
+  ([path reason] [(ValidationFailure. path reason)]))
+
+(defn valid? 
+  "Checks whether a data structure is valid with regard to the given schema. 
+Equivalent to (comp success? validate)"
+  [schema v]
+  (success? (validate schema v)))
+
+
+;; Implementation
+
+(defn- equals [actual expected]
+  (if (= expected actual)
+    ::success
+    (fail (str "Expected " expected " but found " actual))))
+
+(extend-protocol Validator
+  ;; primitive validators validate against themselves
+  Number
+  (validate [self v] (equals v self))
+
+  String 
+  (validate [self v] (equals v self))
+  
+  Boolean
+  (validate [self v] (equals v self))
+
+  clojure.lang.Keyword
+  (validate [self v] (equals v self))
+
+  nil
+  (validate [_ v] 
+    (if (nil? v)
+      ::success
+      (fail (str "Expected nil but found " v))))
+
+  java.util.regex.Pattern
+  (validate [self v] 
+    (if (and (string? v) (re-matches self v))
+      ::success
+      (fail (str "Expected value matching " (pr-str self) " but got " v))))
+  
+  ;; structured validator validate exactly against the structure given as the template
+  ;; with the exception that PersistentHashMap allows missing values if value validator accepts nil
+  clojure.lang.IPersistentMap
+  (validate [self v]
+    (cond
+     (not (map? v)) 
+     (fail (str "Expected map but got " v))
+     
+     (not (subset? (set (keys v)) (set (keys self))))
+     (fail (str "Got unsupported entries "
+                (select-keys v (difference (set (keys v)) (set (keys self))))))
+
+     :else
+     (let [failures (mapcat
+                     (fn [[key validator]]
+                       (let [val (validate validator (get v key))]
+                         (when-not (success? val)
+                           (map #(vector key %) val))))
+                     self)]
+       (if (not (seq failures))
+         ::success
+         (mapcat (fn [[key failure]]
+                   (fail (cons key (:path failure))
+                         (:reason failure)))
+              failures)))))
+  
+  ;; IPersistentVector appears to be lower than IFn on the dispatch order
+  clojure.lang.PersistentVector
+  (validate [self v]
+    (cond
+     (not (vector? v)) 
+     (fail (str "Expected vector but got " v))
+
+     (not= (count self) (count v))
+     (fail (str "Expected vector of length " (count self) " but got " v))
+
+     :else 
+     (let [failures (mapcat 
+                     (fn [idx validator actual]
+                       (let [val (validate validator actual)]
+                         (when (failure? val)
+                           (map #(vector idx %) val))))
+                     (range) self v)]
+       (if (seq failures)
+         (mapcat 
+          (fn [[idx failure]]
+            (fail (cons idx (:path failure)) (:reason failure)))
+          failures)
+         ::success))))
+
+  ;; everything else are opaque validators defined by an acceptance function
+  clojure.lang.IFn
+  (validate [self v] 
+    (let [res (self v)]
+      (if (instance? Boolean res)
+        (or (and res ::success) (fail (str "Failed to validate " v)))
+        res))))
+
+
+
+;; Validator
+
+(defn optional 
+  "Marks a given validator as optional, i.e. it succeeds for a nil value or a value that validates"
+  [validator]
+  #(or (nil? %) (validate validator %)))
+
+
+(defn- type-check [p type-name]
+  (fn [v] (or (and (p v) ::success)
+              (fail (str "Expected " type-name " but got " v)))))
+
+;; no primitive support yet
+(def double (type-check #(instance? Double %) "double"))
+(def int (type-check #(instance? Integer %) "int"))
+(def long (type-check #(instance? Long %) "long"))
+(def boolean (type-check #(instance? Boolean %) "boolean"))
+(def ratio (type-check ratio? "ratio"))
+(def number (type-check number? "number"))
+(def string (type-check string? "string"))
+(def keyword (type-check keyword? "keyword"))
+
+
+(defn- primitive? [v]
+  (or (string? v) (number? v) (keyword? v)
+      (and (map? v)
+           (every? (fn [[k v]] (and (primitive? k) (primitive? v))) v))
+      (and (vector? v)
+           (every? primitive? v))))
+
+(defn choice [& validators]
+  ;; for primitive choices we want to have a nicer display than lengthy validation failure messages
+  (let [primitive (every? primitive? validators)]
+    (fn [v] 
+      (let [vs (map #(validate % v) validators)]
+        (if (some success? vs)
+          ::success
+          (if primitive
+            (fail (str "Value " v " did not match any allowed choices: " (vec validators)))
+            (fail (str "Value " v " failed all allowed choices: " (vec (apply concat vs))))))))))
+
+(defn combine
+  "Creates a combined template, that satisfies all the choices. Most useful in conjunction with open map templates"
+  [& validators]
+  (fn [v] 
+    (let [failures (mapcat #(let [val (validate % v)] (when (failure? val) val)) validators)]
+      (or (seq failures) ::success))))
+
+(defn set-of 
+  "Creates a schema for a set of value, all validated by the given validator"
+  [validator]
+  (fn [v] 
+    (if (set? v)
+      (let [failures (mapcat #(let [val (validate validator %)] (when (failure? val) val)) v)]
+        (or (seq failures) ::success))
+      (fail "Expected set but got " v))))
+
+(defn repeat
+  "Creates a schema for a repetition of elements passing the validator. Supports the following options:
+- :count matches only a vector with the exact number of items
+- :min matches only vectors having at least <min> items
+- :max matches only vectors having at most <max> items"
+  ([validator]
+     (fn [v]
+       (if (vector? v)
+         (validate (vec (clojure.core/repeat (count v) validator)) v)
+         (fail (str "Expected vector but got " v)))))
+  ([validator & attrs]
+     (let [h (apply hash-map attrs)]
+       (fn [v]
+         (cond
+          (not (vector? v)) 
+          (fail (str "Expected vector but got " v))
+
+          (and (contains? h :count)
+               (not= (:count h) (count v)))
+          (fail (str "Expected vector of length " (:count h) " but got " v))
+
+          (and (contains? h :min)
+               (> (:min h) (count v)))
+          (fail (str "Expected vector of mininum length " (:min h) " but got " v))
+
+          (and (contains? h :max)
+               (> (count v) (:max h)))
+          (fail (str "Expected vector of maximum length " (:max h) " but got " v))
+
+          :else (validate (vec (clojure.core/repeat (count v) validator)) v))))))
+
+(defn open-map
+  "Matches a parts of a hash map"
+  [template]
+  (fn [v] 
+    (if (map? v) 
+      (validate template (select-keys v (keys template)))
+      (fail (str "Expected map but got " v)))))
+
+;; end
