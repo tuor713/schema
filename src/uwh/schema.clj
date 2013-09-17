@@ -206,7 +206,7 @@ Equivalent to (comp success? validate)"
         (or (seq failures) ::success))
       (fail (str "Expected map but got " v)))))
 
-(defn repeat
+(defn array-of
   "Creates a schema for a repetition of elements passing the validator. Supports the following options:
 - :count matches only a vector with the exact number of items
 - :min matches only vectors having at least <min> items
@@ -244,5 +244,28 @@ Equivalent to (comp success? validate)"
     (if (map? v) 
       (validate template (select-keys v (keys template)))
       (fail (str "Expected map but got " v)))))
+
+(defn merged-map
+  [& templates]
+  (let [dupes (keys (remove #(= 1 (val %)) (frequencies (mapcat keys templates))))
+        all-keys (set (mapcat keys templates))]
+    (when (seq dupes)
+      (throw (Exception. (str "Non-orthogonal templates: the keys " (vec dupes) 
+                              " appear in more than one template."))))
+    (fn [v]
+      (cond
+       (not (map? v))
+       (fail (str "Expected map but got " v))
+
+       (not (subset? (set (keys v)) all-keys))
+       (fail (str "Got unsupported entries: "
+                  (select-keys v (difference (set (keys v)) all-keys))))
+
+       :else
+       (let [failures (mapcat (fn [t]
+                                (let [val (validate t (select-keys v (keys t)))]
+                                  (when-not (success? val) val)))
+                              templates)]
+         (or (seq failures) ::success))))))
 
 ;; end

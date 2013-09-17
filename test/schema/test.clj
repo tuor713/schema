@@ -99,41 +99,41 @@
     (is (s/failure? (s/validate [(s/choice :a :b) {:a s/double} s/string]
                          [:c {:a 3.1} "string" "as/failure?her"])))))
 
-(deftest test-repeat-template
+(deftest test-array-of-template
   (testing "endless repetition"
-    (is (s/success? (s/validate (s/repeat (s/choice :a :b :c))
+    (is (s/success? (s/validate (s/array-of (s/choice :a :b :c))
                                 [:a :c :c :b])))
-    (is (s/failure? (s/validate (s/repeat (s/choice :a :b :c))
+    (is (s/failure? (s/validate (s/array-of (s/choice :a :b :c))
                          "string")))
-    (is (s/success? (s/validate (s/repeat (s/choice :a :b :c)) 
+    (is (s/success? (s/validate (s/array-of (s/choice :a :b :c)) 
                                 [])))
-    (is (s/failure? (s/validate (s/repeat s/boolean)
+    (is (s/failure? (s/validate (s/array-of s/boolean)
                                 ["string"]))))
   
   (testing "exact count option"
-    (is (s/success? (s/validate (s/repeat (s/choice :a :b :c)
+    (is (s/success? (s/validate (s/array-of (s/choice :a :b :c)
                                           :count 3)
                                 [:b :b :c])))
     
-    (is (s/failure? (s/validate (s/repeat (s/choice :a :b :c)
+    (is (s/failure? (s/validate (s/array-of (s/choice :a :b :c)
                                    :count 3)
                          [:b :b :c :a])))
-    (is (s/failure? (s/validate (s/repeat (s/choice :a :b :c)
+    (is (s/failure? (s/validate (s/array-of (s/choice :a :b :c)
                                    :count 3)
                          [:b :b])))
 
-    (is (s/failure? (s/validate (s/repeat s/boolean :count 3)
+    (is (s/failure? (s/validate (s/array-of s/boolean :count 3)
                                 [true false "string"]))))
 
   (testing "min option"
-    (is (s/success? (s/validate (s/repeat :a :min 3) [:a :a :a])))
-    (is (s/success? (s/validate (s/repeat :a :min 3) [:a :a :a :a])))
-    (is (s/failure? (s/validate (s/repeat :a :min 3) [:a :a]))))
+    (is (s/success? (s/validate (s/array-of :a :min 3) [:a :a :a])))
+    (is (s/success? (s/validate (s/array-of :a :min 3) [:a :a :a :a])))
+    (is (s/failure? (s/validate (s/array-of :a :min 3) [:a :a]))))
   
   (testing "max option"
-    (is (s/success? (s/validate (s/repeat :a :max 3) [:a :a :a])))
-    (is (s/success? (s/validate (s/repeat :a :max 3) [:a :a])))
-    (is (s/failure? (s/validate (s/repeat :a :max 3) [:a :a :a :a])))))
+    (is (s/success? (s/validate (s/array-of :a :max 3) [:a :a :a])))
+    (is (s/success? (s/validate (s/array-of :a :max 3) [:a :a])))
+    (is (s/failure? (s/validate (s/array-of :a :max 3) [:a :a :a :a])))))
 
 (deftest test-open-map
   (is (s/success? (s/validate (s/open-map {:a s/string :b s/keyword})
@@ -161,5 +161,27 @@
   (is (not (s/valid? (s/map-of s/keyword s/number)
                      [:a 1 :b 2 :c 3])))
   )
+
+(deftest test-merged-map
+  (testing "Single map - base case"
+    (is (s/valid? (s/merged-map {:a 1})
+                  {:a 1}))
+    (is (not (s/valid? (s/merged-map {:a 1})
+                       {:a 2})))
+    (is (not (s/valid? (s/merged-map {:a 1})
+                       {:a 1 :b 1}))))
+  
+  (testing "No duplicate keys"
+    (is (thrown? Exception (s/merged-map {:a 1} {:a "stringxo"}))))
+
+  (testing "Multiple maps"
+    (is (s/valid? (s/merged-map {:a 1} {:b 2} {:c 3})
+                  {:a 1 :b 2 :c 3}))
+    (is (not (s/valid? (s/merged-map {:a 1} {:b 2} {:c 3})
+                       {:a 1 :b 2 :c 4})))
+    (is (not (s/valid? (s/merged-map {:a 1} {:b 2} {:c 3})
+                       {:a 1 :b 2})))
+    (is (not (s/valid? (s/merged-map {:a 1} {:b 2} {:c 3})
+                       {:a 1 :b 2 :c 3 :d 4})))))
 
 ;; end 
