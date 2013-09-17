@@ -9,14 +9,14 @@ Not anything near as sophisticated as [Schema](https://github.com/prismatic/sche
 ```clojure
 (require '[uwh.schema :as s])
 
-(s/valid? (s/repeat {:symbol s/string :close s/double :change s/double})
-		    [{:symbol "IBM" :close 192.17 :change 0.75}
-		     {:symbol "ORCL" :close 32.46 :change 1.01}])
+(s/valid? (s/vector-of {:symbol s/string :close s/double :change s/double})
+		       [{:symbol "IBM" :close 192.17 :change 0.75}
+		        {:symbol "ORCL" :close 32.46 :change 1.01}])
 => true
 
-(s/validate (s/repeat {:symbol s/string :close s/double :change s/double})
-		      [{:symbol "IBM" :close 192.17 :change 0.75}
-		       {:symbol :ORCL :close 32.46 :change 1.01}])
+(s/validate (s/vector-of {:symbol s/string :close s/double :change s/double})
+		         [{:symbol "IBM" :close 192.17 :change 0.75}
+		          {:symbol :ORCL :close 32.46 :change 1.01}])
 => (ValidationFailure{Failure at '1 > :symbol': Expected string but got :ORCL})
 
 ```

@@ -206,7 +206,7 @@ Equivalent to (comp success? validate)"
         (or (seq failures) ::success))
       (fail (str "Expected map but got " v)))))
 
-(defn array-of
+(defn vector-of
   "Creates a schema for a repetition of elements passing the validator. Supports the following options:
 - :count matches only a vector with the exact number of items
 - :min matches only vectors having at least <min> items

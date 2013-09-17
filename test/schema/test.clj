@@ -99,41 +99,41 @@
     (is (s/failure? (s/validate [(s/choice :a :b) {:a s/double} s/string]
                          [:c {:a 3.1} "string" "as/failure?her"])))))
 
-(deftest test-array-of-template
+(deftest test-vector-of-template
   (testing "endless repetition"
-    (is (s/success? (s/validate (s/array-of (s/choice :a :b :c))
+    (is (s/success? (s/validate (s/vector-of (s/choice :a :b :c))
                                 [:a :c :c :b])))
-    (is (s/failure? (s/validate (s/array-of (s/choice :a :b :c))
+    (is (s/failure? (s/validate (s/vector-of (s/choice :a :b :c))
                          "string")))
-    (is (s/success? (s/validate (s/array-of (s/choice :a :b :c)) 
+    (is (s/success? (s/validate (s/vector-of (s/choice :a :b :c)) 
                                 [])))
-    (is (s/failure? (s/validate (s/array-of s/boolean)
+    (is (s/failure? (s/validate (s/vector-of s/boolean)
                                 ["string"]))))
   
   (testing "exact count option"
-    (is (s/success? (s/validate (s/array-of (s/choice :a :b :c)
+    (is (s/success? (s/validate (s/vector-of (s/choice :a :b :c)
                                           :count 3)
                                 [:b :b :c])))
     
-    (is (s/failure? (s/validate (s/array-of (s/choice :a :b :c)
+    (is (s/failure? (s/validate (s/vector-of (s/choice :a :b :c)
                                    :count 3)
                          [:b :b :c :a])))
-    (is (s/failure? (s/validate (s/array-of (s/choice :a :b :c)
+    (is (s/failure? (s/validate (s/vector-of (s/choice :a :b :c)
                                    :count 3)
                          [:b :b])))
 
-    (is (s/failure? (s/validate (s/array-of s/boolean :count 3)
+    (is (s/failure? (s/validate (s/vector-of s/boolean :count 3)
                                 [true false "string"]))))
 
   (testing "min option"
-    (is (s/success? (s/validate (s/array-of :a :min 3) [:a :a :a])))
-    (is (s/success? (s/validate (s/array-of :a :min 3) [:a :a :a :a])))
-    (is (s/failure? (s/validate (s/array-of :a :min 3) [:a :a]))))
+    (is (s/success? (s/validate (s/vector-of :a :min 3) [:a :a :a])))
+    (is (s/success? (s/validate (s/vector-of :a :min 3) [:a :a :a :a])))
+    (is (s/failure? (s/validate (s/vector-of :a :min 3) [:a :a]))))
   
   (testing "max option"
-    (is (s/success? (s/validate (s/array-of :a :max 3) [:a :a :a])))
-    (is (s/success? (s/validate (s/array-of :a :max 3) [:a :a])))
-    (is (s/failure? (s/validate (s/array-of :a :max 3) [:a :a :a :a])))))
+    (is (s/success? (s/validate (s/vector-of :a :max 3) [:a :a :a])))
+    (is (s/success? (s/validate (s/vector-of :a :max 3) [:a :a])))
+    (is (s/failure? (s/validate (s/vector-of :a :max 3) [:a :a :a :a])))))
 
 (deftest test-open-map
   (is (s/success? (s/validate (s/open-map {:a s/string :b s/keyword})
