@@ -44,7 +44,11 @@
   (is (s/success? (s/validate s/double 3.1)))
   ;; you have to be explicit because they are actually differenec, for example when using format
   ;; and when doing arithmetic
-  (is (s/failure? (s/validate s/double 3))))
+  (is (s/failure? (s/validate s/double 3)))
+
+  (is (s/valid? even? 2))
+  (is (not (s/valid? even? 3)))
+  (is (not (s/valid? even? "string"))))
 
 (deftest test-combinators
   (testing "choice"
@@ -183,5 +187,11 @@
                        {:a 1 :b 2})))
     (is (not (s/valid? (s/merged-map {:a 1} {:b 2} {:c 3})
                        {:a 1 :b 2 :c 3 :d 4})))))
+
+(deftest test-short-forms
+  (is (s/valid? (s/| 1 2 3) 2))
+  (is (s/valid? (s/& s/number even?) 2))
+  (is (not (s/valid? (s/& s/number even?) 3)))
+  (is (not (s/valid? (s/& s/number even?) "and"))))
 
 ;; end 

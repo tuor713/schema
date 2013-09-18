@@ -2,7 +2,7 @@
 
 A weekend project of writing a small schema validation library for Clojure (or EDN) datastructures. 
 
-Not anything near as sophisticated as [Schema](https://github.com/prismatic/schema). But remarkably similar despite completely independent evolution.
+Not anything near as sophisticated as [Schema](https://github.com/prismatic/schema) or [clj-schema](https://github.com/runa-dev/clj-schema). But remarkably similar despite completely independent evolution.
 
 ## Usage 
 
